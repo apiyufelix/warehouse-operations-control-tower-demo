@@ -18,12 +18,14 @@ import streamlit as st
 
 from analytics import load_tables, prepare_dashboard
 from productivity import PROCESSES, SHIFTS, prepare_productivity
+from labor_balancing import analyze_labor_balance
 from forecasting import prepare_forecast, prepare_capacity_scenario, prepare_alerts
 from risk_intelligence import prepare_risk_intelligence
 from executive import DEMO_REFERENCES, export_brief_html, prepare_executive
 
 ROOT = Path(__file__).resolve().parent
 DATABASE = ROOT / "warehouse_ops_demo.db"
+LABOR_BALANCE_FILE = ROOT / "data" / "labor_balance_scenarios.csv"
 
 st.set_page_config(
     page_title="Warehouse Operations Control Tower",
@@ -116,7 +118,7 @@ initial_start = max(min_created, max_day - timedelta(days=29))
 
 with st.sidebar:
     st.title("📦 Control Tower")
-    st.caption("Warehouse Operations Monitoring — Public demo v1.0")
+    st.caption("Warehouse Operations Monitoring — Public demo v1.1")
     st.divider()
     warehouses = tables["warehouses"].sort_values("warehouse_name")
     names_to_ids = dict(zip(warehouses["warehouse_name"], warehouses["warehouse_id"]))
@@ -133,7 +135,7 @@ with st.sidebar:
     )
     st.caption(f"Available history: {min_created:%b %d, %Y} – {max_day:%b %d, %Y}")
     st.divider()
-    st.info("**PUBLIC READ-ONLY DEMO**\n\nAll data is synthetic and frozen as of November 12, 2026. No uploads, user accounts, or database edits are available.")
+    st.info("**PUBLIC READ-ONLY DEMO**\n\nAll data is synthetic and frozen as of November 12, 2026. No uploads, user accounts, or database edits are available. Labor balancing uses a separate, editable-on-screen scenario that is never saved.")
     with st.expander("How metrics are defined"):
         st.markdown(
             "**Received**: orders created during the date range.  \n"
@@ -165,7 +167,7 @@ except (ValueError, KeyError) as exc:
 k = results["metrics"]
 asof = results["as_of"]
 st.title("Warehouse Operations Performance")
-st.info("🌐 **Public demo · Read-only · Synthetic records** — Explore KPIs, quality, inventory, productivity, forecasts, and delay risks. No changes can be saved. Historical data is frozen at the labeled reporting cutoff.")
+st.info("🌐 **Public demo · Read-only · Synthetic records** — Explore KPIs, quality, inventory, productivity, staffing scenarios, forecasts, and delay risks. No changes can be saved. Historical data is frozen at the labeled reporting cutoff.")
 st.caption(
     f"Operations control tower | Report window: {start_date:%b %d, %Y} – {end_date:%b %d, %Y} (UTC) "
     f"| As-of cutoff: {asof:%Y-%m-%d %H:%M} UTC"
@@ -194,13 +196,31 @@ with eighth:
     st.metric("SKUs at/below reorder", pretty_number(k["skus_below_reorder"]),
               help="Number of SKU/warehouse rows at or below the reorder point, from the current inventory snapshot.")
 
-tab_exec, tab_overview, tab_exceptions, tab_quality, tab_inventory, tab_productivity, tab_forecast, tab_risk = st.tabs(
+tab_exec, tab_overview, tab_exceptions, tab_quality, tab_inventory, tab_productivity, tab_labor, tab_forecast, tab_risk = st.tabs(
     ["🏢 Executive brief", "📊 Overview", "🚨 Overdue orders", "🛡️ Quality control", "📦 Inventory",
-     "⚙️ Productivity", "🔮 Forecast & alerts", "🧠 Delay risk & triage"]
+     "⚙️ Productivity", "⚖️ Labor balancing", "🔮 Forecast & alerts", "🧠 Delay risk & triage"]
 )
+
+# These on-screen staffing inputs are standalone simulation records, not WMS
+# headcounts. Do not infer employee counts from the labor_shifts hours table.
+if LABOR_BALANCE_FILE.exists():
+    labor_scenarios = pd.read_csv(LABOR_BALANCE_FILE)
+    labor_scenarios = labor_scenarios[labor_scenarios["warehouse_id"].isin(selected_ids)].copy()
+else:
+    labor_scenarios = pd.DataFrame()
 
 with tab_exec:
     st.subheader("Executive performance summary")
+    if not labor_scenarios.empty and end_date == max_day:
+        sample_labor_alerts = analyze_labor_balance(labor_scenarios)
+        active_moves = int(sample_labor_alerts["transfers"]["employees_to_transfer"].sum())
+        remaining_gaps = int(sample_labor_alerts["summary"]["shortage_after"].sum())
+        if active_moves:
+            st.warning(f"⚖️ **Labor balancing scenario:** {active_moves} cross-trained employee transfers "
+                       f"recommended across the selected warehouses' synthetic shifts. "
+                       f"Unfilled staffing gaps after transfers: {remaining_gaps}. "
+                       "See **⚖️ Labor balancing** for sources, destinations, and staffing assumptions. "
+                       "This is not a live WMS alert.")
     st.caption(
         "Read-only management review of synthetic warehouse operations. This summarizes the current report period "
         "and compares it with the immediately preceding equally long period, when complete prior history exists. "
@@ -554,6 +574,144 @@ with tab_productivity:
     st.info('All productivity records are synthetic. Shift windows are UTC (not local North Carolina time); '
             'the final Nov 12 shift is partially recorded to the snapshot cutoff. '
             'Production use would require real scan events, reliable timekeeping, local timezone rules, and validated labor allocation.')
+
+with tab_labor:
+    st.subheader("Cross-trained labor balancing & management alerts")
+    st.caption("Simulated staffing redistribution across Picking, Packing, and Dispatch. "
+               "Every employee is assumed eligible to perform every department's tasks. "
+               "Recommended transfers are advisory, never executed automatically.")
+    if labor_scenarios.empty:
+        st.error("The standalone synthetic staffing scenario is missing. "
+                 "Include data/labor_balance_scenarios.csv in your deployment.")
+    elif end_date != max_day:
+        st.info("This staffing scenario is frozen at **November 12, 2026**, independent of historical "
+                "labor-hours reporting. Select November 12 as the report end date to inspect it.")
+    else:
+        st.warning("**Synthetic labor scenario, not live staffing:** Department headcounts and queued workload "
+                   "are illustrative manual inputs, **not** derived from the historical labor-hours table. "
+                   "Shift times are UTC. Transfer recommendations assume all workers are cross-trained, "
+                   "available, and safe to move within the same warehouse and shift.")
+        tune1, tune2, tune3 = st.columns(3)
+        with tune1:
+            hours_left = st.number_input('Hours remaining per worker', min_value=0.5,
+                                         max_value=8.0, value=6.0, step=0.5,
+                                         help='How many productive hours remain in the modeled shift?')
+        with tune2:
+            target_pct = st.slider('Planned productive time (%)', 60, 100, 85, 5,
+                                   help='Allow for breaks, movement, and downtime. All inputs are illustrative.')
+        with tune3:
+            buffer_pct = st.slider('Workload contingency (%)', 0, 30, 10, 5,
+                                   help='Reserve extra capacity for interruptions and rework.')
+        base = analyze_labor_balance(labor_scenarios, hours_remaining=hours_left,
+                                     target_utilization=target_pct / 100,
+                                     workload_buffer=buffer_pct / 100)
+        base_summaries = base['summary']
+        base_moves = base['transfers']
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric('Suggested transfers', int(base_moves['employees_to_transfer'].sum()))
+        c2.metric('Shifts with recommendations', int((base_summaries['transfers_recommended'] > 0).sum()))
+        c3.metric('Remaining shortages', int(base_summaries['shortage_after'].sum()),
+                  help='Required staff not covered after transfers; no cross-shift moves are assumed.')
+        c4.metric('Excess staff remaining', int(base_summaries['surplus_after'].sum()),
+                  help='Surplus staff who have no valid shortage recipient in their warehouse and shift.')
+        st.markdown('#### Management alert queue')
+        brief = base_summaries[['warehouse_name', 'shift_name', 'alert',
+                                'transfers_recommended', 'shortage_after', 'surplus_after',
+                                'stage_work_risk_reduction']].rename(columns={
+            'warehouse_name': 'Warehouse', 'shift_name': 'Shift (UTC)',
+            'alert': 'Alert', 'transfers_recommended': 'Move workers',
+            'shortage_after': 'Shortage after', 'surplus_after': 'Surplus after',
+            'stage_work_risk_reduction': 'Modeled stage-work gap reduced (units)',
+        }).round(1)
+        render_html_table(brief)
+        st.caption('Modeled work-gap reduction counts workload at each process stage, not distinct shipped units or validated savings.')
+        if not base_moves.empty:
+            st.markdown('#### Recommended transfers across selected warehouses')
+            moves_display = base_moves[['warehouse_name', 'shift_name', 'from_department',
+                                        'to_department', 'employees_to_transfer']].rename(columns={
+                'warehouse_name': 'Warehouse', 'shift_name': 'Shift (UTC)',
+                'from_department': 'From', 'to_department': 'To',
+                'employees_to_transfer': 'Move employees',
+            })
+            render_html_table(moves_display)
+            download_csv('Download synthetic transfer plan', moves_display, 'labor_balance_suggested_transfers')
+        else:
+            st.success('No transfers indicated by the current synthetic staffing scenario.')
+
+        st.markdown('#### Test a shift-level reallocation')
+        warehouse_options = list(labor_scenarios['warehouse_name'].drop_duplicates())
+        local_left, local_right = st.columns(2)
+        with local_left:
+            chosen_wh = st.selectbox('Warehouse for scenario', warehouse_options, key='labor_wh')
+        with local_right:
+            chosen_shift = st.selectbox('Shift for scenario', list(SHIFTS), key='labor_shift')
+        selected_scenario = labor_scenarios.loc[
+            labor_scenarios['warehouse_name'].eq(chosen_wh)
+            & labor_scenarios['shift_name'].eq(chosen_shift)
+        ].copy()
+        st.caption('Adjust on-duty staff, remaining stage work, minimum safe coverage, or process rate. '
+                   'Changes run only in this browser session and are never saved to the database.')
+        user_rates = {}
+        for process in PROCESSES:
+            row = selected_scenario[selected_scenario['process_name'].eq(process)]
+            if row.empty:
+                continue
+            idx = row.index[0]
+            current = row.iloc[0]
+            st.markdown(f'**{process}**')
+            u1, u2, u3, u4 = st.columns(4)
+            with u1:
+                headcount = st.number_input('Staff on duty', 0, 200,
+                                            int(current['staff_on_duty']), 1,
+                                            key=f'cnt_{process}')
+            with u2:
+                queued_units = st.number_input('Remaining stage units', 0, 100000,
+                                                int(current['remaining_work_units']), 5,
+                                                key=f'work_{process}')
+            with u3:
+                min_staff = st.number_input('Minimum coverage', 0, 200,
+                                            int(current['minimum_staff']), 1,
+                                            key=f'min_{process}')
+            with u4:
+                reference = {'Picking': 6.5, 'Packing': 8.0, 'Dispatch': 10.5}[process]
+                user_rates[process] = st.number_input('Units / person-hour',
+                                                        min_value=0.1, max_value=500.0,
+                                                        value=reference, step=0.5,
+                                                        key=f'rate_{process}')
+            selected_scenario.loc[idx, ['staff_on_duty', 'remaining_work_units', 'minimum_staff']] = (
+                int(headcount), int(queued_units), int(min_staff)
+            )
+        modeled = analyze_labor_balance(selected_scenario,
+                                        hours_remaining=hours_left,
+                                        target_utilization=target_pct / 100,
+                                        workload_buffer=buffer_pct / 100,
+                                        rates=user_rates)
+        details = modeled['departments'][['process_name', 'staff_on_duty', 'staff_needed',
+                                          'surplus_before', 'shortage_before', 'staff_after',
+                                          'shortage_after', 'remaining_work_units']].rename(columns={
+            'process_name': 'Department', 'staff_on_duty': 'Current employees',
+            'staff_needed': 'Employees needed', 'surplus_before': 'Surplus before',
+            'shortage_before': 'Shortage before', 'staff_after': 'After transfer',
+            'shortage_after': 'Shortage after', 'remaining_work_units': 'Work units remaining',
+        })
+        render_html_table(details)
+        if not modeled['transfers'].empty:
+            for move in modeled['transfers'].itertuples(index=False):
+                st.warning(f'📣 **Transfer recommendation:** Move **{move.employees_to_transfer}** '
+                           f'employee(s) from **{move.from_department} → {move.to_department}** '
+                           f'within **{move.warehouse_name}, {move.shift_name}**.')
+        else:
+            st.info('No available within-shift transfers for this scenario.')
+        if int(modeled['summary']['shortage_after'].sum()):
+            st.error('Some departments remain understaffed after all safe modeled transfers. '
+                     'Review overtime, additional staff, revised priorities, or process constraints.')
+        elif int(modeled['summary']['surplus_after'].sum()):
+            st.info('Excess coverage remains, but no remaining department is short. '
+                    'Do not transfer employees solely to make staffing counts equal.')
+        st.caption('**Formula:** required employees = max(minimum coverage, ceil(remaining units × '
+                   '(1 + contingency) ÷ (units/person-hour × hours left × productive fraction))). '
+                   'The tool never recommends reducing a donor below its calculated requirement. '
+                   'Managers must confirm breaks, handoffs, equipment, safety, local policy, and actual WMS queues before acting.')
 
 with tab_forecast:
     st.subheader('Demand forecasting & proactive operational watches')
