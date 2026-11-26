@@ -1,0 +1,19 @@
+warehouse_id,warehouse_name,shift_name,process_name,staff_on_duty,remaining_work_units,minimum_staff
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift A (00–08 UTC),Picking,8,130,2
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift A (00–08 UTC),Packing,3,230,2
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift A (00–08 UTC),Dispatch,4,160,2
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift B (08–16 UTC),Picking,6,180,2
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift B (08–16 UTC),Packing,7,120,2
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift B (08–16 UTC),Dispatch,2,200,2
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift C (16–24 UTC),Picking,5,80,2
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift C (16–24 UTC),Packing,4,110,2
+WH_NC_01,Central NC Fulfillment (Synthetic),Shift C (16–24 UTC),Dispatch,3,220,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift A (00–08 UTC),Picking,6,75,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift A (00–08 UTC),Packing,2,170,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift A (00–08 UTC),Dispatch,5,115,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift B (08–16 UTC),Picking,3,165,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift B (08–16 UTC),Packing,6,105,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift B (08–16 UTC),Dispatch,4,165,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift C (16–24 UTC),Picking,4,115,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift C (16–24 UTC),Packing,4,120,2
+WH_NC_02,Piedmont Distribution (Synthetic),Shift C (16–24 UTC),Dispatch,4,130,2
