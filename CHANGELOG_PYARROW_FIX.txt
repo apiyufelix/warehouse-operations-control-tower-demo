@@ -1,0 +1,14 @@
+Step 3 v0.3.1 — PyArrow DLL compatibility update
+
+Changes:
+- Converted all 4 Streamlit dataframe widgets to scrollable HTML tables.
+- Preserved the SQLite database, analytics, Plotly charts and CSV exports.
+- HTML-escapes table cells when rendering.
+
+Start:
+  python -m pip install -r requirements.txt
+  python -m streamlit run app.py
+
+Limitations:
+- HTML tables are not interactively sortable.
+- Organization Windows App Control may block other compiled dependencies; ask IT for policy exceptions, rather than disabling it.
