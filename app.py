@@ -18,7 +18,7 @@ import streamlit as st
 
 from analytics import load_tables, prepare_dashboard
 from productivity import PROCESSES, SHIFTS, prepare_productivity
-from labor_balancing import analyze_labor_balance
+from labor_balancing import analyze_labor_balance, prepare_labor_comparison
 from forecasting import prepare_forecast, prepare_capacity_scenario, prepare_alerts
 from risk_intelligence import prepare_risk_intelligence
 from executive import DEMO_REFERENCES, export_brief_html, prepare_executive
@@ -118,7 +118,7 @@ initial_start = max(min_created, max_day - timedelta(days=29))
 
 with st.sidebar:
     st.title("📦 Control Tower")
-    st.caption("Warehouse Operations Monitoring — Public demo v1.1")
+    st.caption("Warehouse Operations Monitoring — Public demo v1.2")
     st.divider()
     warehouses = tables["warehouses"].sort_values("warehouse_name")
     names_to_ids = dict(zip(warehouses["warehouse_name"], warehouses["warehouse_id"]))
@@ -638,6 +638,24 @@ with tab_labor:
         else:
             st.success('No transfers indicated by the current synthetic staffing scenario.')
 
+        # This comparison uses exactly the same stage-work capacity assumptions
+        # as the transfer engine, so it is an illustrative planning estimate.
+        all_impact = prepare_labor_comparison(base)['metrics']
+        st.markdown('#### Before vs. after — all modeled shifts')
+        o1, o2, o3, o4 = st.columns(4)
+        o1.metric('Stage-work coverage before',
+                  f"{all_impact['coverage_pct_before']:.1f}%" if all_impact['coverage_pct_before'] is not None else 'N/A')
+        o2.metric('Stage-work coverage after',
+                  f"{all_impact['coverage_pct_after']:.1f}%" if all_impact['coverage_pct_after'] is not None else 'N/A',
+                  delta=(f"{all_impact['coverage_pct_after'] - all_impact['coverage_pct_before']:+.1f} pp"
+                         if all_impact['coverage_pct_before'] is not None else None))
+        o3.metric('Modeled stage-work gap reduced', f"{all_impact['stage_work_gap_reduced']:,.0f} units")
+        o4.metric('Staff shortages before → after',
+                  f"{all_impact['shortage_before']} → {all_impact['shortage_after']}")
+        st.caption('Totals are across **six independently modeled warehouse/shift scenarios** and count work at ' 
+                   'each process stage, not distinct shipped units. Coverage is a planning estimate, not ' 
+                   'measured productivity or a forecast of on-time delivery.')
+
         st.markdown('#### Test a shift-level reallocation')
         warehouse_options = list(labor_scenarios['warehouse_name'].drop_duplicates())
         local_left, local_right = st.columns(2)
@@ -695,6 +713,69 @@ with tab_labor:
             'shortage_after': 'Shortage after', 'remaining_work_units': 'Work units remaining',
         })
         render_html_table(details)
+
+        impact = prepare_labor_comparison(modeled)
+        impact_rows = impact['departments']
+        impact_metrics = impact['metrics']
+        st.markdown('#### Before vs. after — selected warehouse and shift')
+        i1, i2, i3, i4 = st.columns(4)
+        i1.metric('Modeled work coverage before',
+                  f"{impact_metrics['coverage_pct_before']:.1f}%"
+                  if impact_metrics['coverage_pct_before'] is not None else 'N/A')
+        i2.metric('Modeled work coverage after',
+                  f"{impact_metrics['coverage_pct_after']:.1f}%"
+                  if impact_metrics['coverage_pct_after'] is not None else 'N/A',
+                  delta=(f"{impact_metrics['coverage_pct_after'] - impact_metrics['coverage_pct_before']:+.1f} pp"
+                         if impact_metrics['coverage_pct_before'] is not None else None))
+        i3.metric('Stage-work gap reduced', f"{impact_metrics['stage_work_gap_reduced']:,.1f} units")
+        i4.metric('Unfilled positions before → after',
+                  f"{impact_metrics['shortage_before']} → {impact_metrics['shortage_after']}")
+        left_chart, right_chart = st.columns(2)
+        with left_chart:
+            st.markdown('**Staff allocation by department**')
+            fig_staff = go.Figure()
+            fig_staff.add_trace(go.Bar(x=impact_rows['process_name'],
+                                       y=impact_rows['staff_on_duty'], name='Before'))
+            fig_staff.add_trace(go.Bar(x=impact_rows['process_name'],
+                                       y=impact_rows['staff_after'], name='After'))
+            fig_staff.add_trace(go.Scatter(x=impact_rows['process_name'],
+                                           y=impact_rows['staff_needed'],
+                                           mode='lines+markers', name='Required staffing',
+                                           line=dict(dash='dot')))
+            fig_staff.update_layout(barmode='group', yaxis_title='Employees',
+                                    xaxis_title='Department', yaxis=dict(rangemode='tozero'))
+            st.plotly_chart(chart_style(fig_staff), use_container_width=True)
+        with right_chart:
+            st.markdown('**Expected stage-work coverage**')
+            fig_coverage = go.Figure()
+            fig_coverage.add_trace(go.Bar(x=impact_rows['process_name'],
+                                          y=impact_rows['coverage_pct_before'], name='Before'))
+            fig_coverage.add_trace(go.Bar(x=impact_rows['process_name'],
+                                          y=impact_rows['coverage_pct_after'], name='After'))
+            fig_coverage.update_layout(barmode='group', xaxis_title='Department',
+                                       yaxis_title='Modeled workload covered (%)',
+                                       yaxis=dict(range=[0, 105]))
+            st.plotly_chart(chart_style(fig_coverage), use_container_width=True)
+
+        impact_table = impact_rows[[
+            'process_name', 'staff_on_duty', 'staff_after', 'staff_change',
+            'remaining_work_units', 'work_units_at_risk_before',
+            'work_units_at_risk_after', 'stage_work_coverage_change',
+        ]].rename(columns={
+            'process_name': 'Department', 'staff_on_duty': 'Staff before',
+            'staff_after': 'Staff after', 'staff_change': 'Staff change (+/-)',
+            'remaining_work_units': 'Remaining stage work',
+            'work_units_at_risk_before': 'Uncovered work before',
+            'work_units_at_risk_after': 'Uncovered work after',
+            'stage_work_coverage_change': 'Additional stage work covered',
+        }).round(1)
+        render_html_table(impact_table)
+        download_csv('Download before/after comparison', impact_table, 'labor_balance_impact')
+        st.caption('These are *illustrative capacity estimates* under the selected productivity rates and ' 
+                   'hours left, not observed output gains, cost savings, or unique orders. No employees move ' 
+                   'in the demo; total staff is conserved within the selected shift. Zero-work departments ' 
+                   'show N/A coverage. Managers must verify actual work queues and constraints.')
+
         if not modeled['transfers'].empty:
             for move in modeled['transfers'].itertuples(index=False):
                 st.warning(f'📣 **Transfer recommendation:** Move **{move.employees_to_transfer}** '
@@ -996,7 +1077,7 @@ with tab_risk:
                    'using a system like this for real operating decisions.')
 
 st.divider()
-st.caption('Public read-only demonstration • UTC reporting • Frozen synthetic data • Version 1.0.0 '
+st.caption('Public read-only demonstration • UTC reporting • Frozen synthetic data • Version 1.2.0 '
            '(HTML tables + productivity + forecasts + delay-risk triage)')
 
 

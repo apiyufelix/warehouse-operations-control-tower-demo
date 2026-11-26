@@ -180,3 +180,65 @@ def analyze_labor_balance(
             reference_rates=rates,
         ),
     }
+
+
+def prepare_labor_comparison(analysis: dict) -> dict:
+    """Compare modeled staffing and stage-work coverage before vs after transfers.
+
+    This is a descriptive what-if comparison using the *same* coverage
+    assumptions as analyze_labor_balance. It does not predict actual worker
+    productivity, cost savings, throughput, on-time shipping, or unique orders.
+    
+    The units across stages and shifts are summed *stage-work* units, not unique
+    physical units, because a unit might appear at picking, packing, dispatch.
+    """
+    rows = analysis['departments'].copy()
+    needed = {
+        'process_name', 'staff_on_duty', 'staff_after', 'staff_needed',
+        'remaining_work_units', 'shortage_before', 'shortage_after',
+        'work_units_covered_before', 'work_units_covered_after',
+        'work_units_at_risk_before', 'work_units_at_risk_after',
+    }
+    if not needed.issubset(rows.columns):
+        raise ValueError(f'Missing comparison columns: {sorted(needed - set(rows.columns))}')
+    if rows.empty:
+        raise ValueError('No modeled departments to compare')
+
+    rows['staff_change'] = rows['staff_after'] - rows['staff_on_duty']
+    rows['stage_work_coverage_change'] = (
+        rows['work_units_covered_after'] - rows['work_units_covered_before']
+    )
+    for period in ('before', 'after'):
+        work = rows['remaining_work_units'].astype(float)
+        percent = rows[f'work_units_covered_{period}'] / work.where(work > 0) * 100
+        rows[f'coverage_pct_{period}'] = percent.clip(lower=0, upper=100)
+
+    demand = float(rows['remaining_work_units'].sum())
+    covered_before = float(rows['work_units_covered_before'].sum())
+    covered_after = float(rows['work_units_covered_after'].sum())
+    gap_before = float(rows['work_units_at_risk_before'].sum())
+    gap_after = float(rows['work_units_at_risk_after'].sum())
+    headcount_before = int(rows['staff_on_duty'].sum())
+    headcount_after = int(rows['staff_after'].sum())
+    shortage_before = int(rows['shortage_before'].sum())
+    shortage_after = int(rows['shortage_after'].sum())
+    if headcount_before != headcount_after:
+        raise ValueError('A transfer-only scenario must preserve total headcount')
+    if covered_after < covered_before - 1e-6 or gap_after > gap_before + 1e-6:
+        raise ValueError('Transfer scenario must not reduce modeled stage-work coverage')
+
+    metrics = {
+        'total_stage_work_units': demand,
+        'stage_work_covered_before': covered_before,
+        'stage_work_covered_after': covered_after,
+        'stage_work_at_risk_before': gap_before,
+        'stage_work_at_risk_after': gap_after,
+        'stage_work_gap_reduced': max(0., gap_before - gap_after),
+        'coverage_pct_before': (100 * covered_before / demand) if demand > 0 else None,
+        'coverage_pct_after': (100 * covered_after / demand) if demand > 0 else None,
+        'headcount_before': headcount_before,
+        'headcount_after': headcount_after,
+        'shortage_before': shortage_before,
+        'shortage_after': shortage_after,
+    }
+    return {'departments': rows, 'metrics': metrics}

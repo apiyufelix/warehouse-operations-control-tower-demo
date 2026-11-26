@@ -1,171 +1,128 @@
-# Warehouse Operations Control Tower
+# Warehouse Operations Control Tower — Public Demo + Labor Balancing (Step 15)
 
-**A Streamlit-based analytics and decision-support demo for warehouse and distribution-center operations.**
+A **9-tab Streamlit demonstration** of warehouse and distribution-center operations performance. The package contains **only synthetic warehouse records** in a frozen SQLite database, with historical data through **November 12, 2026 (UTC)**. This is not a live WMS feed or a production service.
 
-[**Launch the live demo**](https://warehouse-operations-control-tower-demo-pebsnzfnmcbwlxfavivd2x.streamlit.app/) · [**View the GitHub repository**](https://github.com/apiyufelix/warehouse-operations-control-tower-demo)
+## What visitors can do
 
-> **Public demonstration — synthetic data only.** The hosted application is designed for read-only exploration, not live warehouse execution. Its historical dataset is frozen at **November 12, 2026 (UTC)**. Metrics, predictions, risk scores, and suggested actions illustrate an analytics workflow; they are not operational claims about any real warehouse or employer.
+Explore the Executive Brief, Overview, Overdue Orders, Quality Control, Inventory, Productivity, **Labor Balancing**, Forecast & Alerts, and Delay Risk & Triage tabs. Visitors can filter warehouse/date/shift, review synthetic operational performance, export reports, and change demonstration scenario reference values **in their own session only**.
 
-## Overview
+## What visitors cannot do
 
-Warehouse leaders often need to combine order status, shipping deadlines, inventory, quality inspections, and labor productivity to answer a simple question: **What is happening in the distribution center, what is at risk, and where should we investigate first?**
+No uploading, persistent record editing, case assignment, database synchronization, external alert delivery, logins, or admin functions. The Labor Balancing tab allows what-if inputs, but never writes or assigns staff. The public package excludes the original write-capable exception workflow, data ingestion module, migration utilities, and import history. The reporting layer connects using SQLite's **read-only and immutable** modes. The packaged DB excludes case notes, case-event audit trails, and import records. The original private Step 9 application remains a separate project; **do not deploy that version as public**.
 
-The Warehouse Operations Control Tower brings those views into a unified dashboard. It supports retrospective performance reviews and demonstrates how historical data can inform order-volume forecasts, capacity scenarios, and explainable exception triage.
+## Local test in VS Code
 
-### Key capabilities
-
-| Dashboard | What it helps users examine |
-| --- | --- |
-| **Executive brief** | KPI scorecard, comparisons with the previous equal-length period, warehouse performance, leadership review priorities, and downloadable reports |
-| **Overview** | Orders received and shipped, on-time shipping, cycle time, backlog, and warehouse-level comparisons |
-| **Overdue orders** | Open orders past their promised shipping time, filtered by warehouse and illustrative severity |
-| **Quality control** | Inspection volumes, defect rates, and failed inspections |
-| **Inventory** | Current SKU-level quantities and reorder-point monitoring |
-| **Productivity** | Picking, packing, and dispatch output; labor hours; shift comparisons; queue-wait indicators |
-| **Forecast & alerts** | 7- or 14-day demand forecasts, backtest diagnostics, workload estimates, and rule-based operational watches |
-| **Delay risk & triage** | Upcoming and overdue deadlines, historical risk scores, suggested investigations, and prioritized review queues |
-
-## Demo snapshot
-
-The sample below reflects **both fictional warehouses** for **October 14–November 12, 2026**. These values are derived from the packaged synthetic demonstration database and **must not be interpreted as real business results**.
-
-| Measure | Sample value |
-| --- | ---: |
-| Orders received during the period | 1,339 |
-| Orders shipped during the period | 1,337 |
-| On-time shipping, for orders due in the period | 87.14% |
-| Open backlog at the reporting cutoff | 75 orders |
-| Overdue open orders at the reporting cutoff | 53 orders |
-| QC defect rate by inspected units | 1.73% |
-| SKU–warehouse records at or below reorder point | 22 |
-
-**Important:** Orders received, orders shipped, and orders due use different event-date definitions. They are not interchangeable counts. The backlog and inventory indicators are as-of/snapshot measures rather than sums restricted to the selected reporting window.
-
-## Explore the live application
-
-1. Open the [public Streamlit demo](https://warehouse-operations-control-tower-demo-pebsnzfnmcbwlxfavivd2x.streamlit.app/).
-2. Use the **warehouse** and **UTC date range** filters in the sidebar.
-3. Start with **Executive brief** for performance trends and review priorities.
-4. Inspect **Overdue orders** and **Delay risk & triage** to see how the app separates already-late orders from approaching deadlines.
-5. Review **Productivity** for process/shift differences, then try a **7- or 14-day** forecast and inspect its error diagnostics.
-6. Export available CSVs or the executive brief for offline analysis.
-
-The public interface permits exploration and downloads. It does **not** provide operational case editing, data uploads, user accounts, or warehouse-system integration.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A[(Synthetic SQLite snapshot)] --> B[Read-only SQL / Pandas ingestion]
-    B --> C[Operational KPI engine]
-    B --> D[Productivity analysis]
-    B --> E[Demand forecast and capacity scenario]
-    B --> F[Delay-risk scoring and triage]
-    C --> G[Streamlit + Plotly dashboard]
-    D --> G
-    E --> G
-    F --> G
-    G --> H[Read-only exploration and exports]
-```
-
-**Technology:** Python, Streamlit, Pandas, Plotly, SQLite, SQL, and pytest. The public demo is deployed on Streamlit Community Cloud.
-
-### Data model
-
-The frozen demonstration dataset includes **2 fictional warehouses**, **40 products**, and the following operational tables:
-
-| Table | Purpose |
-| --- | --- |
-| `warehouses` | Warehouse identifiers and names |
-| `products` | Product/SKU reference data |
-| `orders` | Order creation, promise, priority, status, and warehouse association |
-| `order_lines` | Product quantities associated with orders |
-| `shipments` | Order shipment timestamps |
-| `inventory` | SKU-by-warehouse inventory snapshots and reorder levels |
-| `quality_inspections` | Inspection outcomes and defect quantities |
-| `process_activities` | Picking, packing, and dispatch activity |
-| `labor_shifts` | Recorded direct labor hours by process and shift |
-
-For example, **on-time shipping** is calculated over eligible orders **due** during the selected window: shipments made on or before the promise count as on time, and overdue unshipped orders count against the rate. **Productivity** is expressed as processed units per recorded direct labor hour. Inventory metrics use the latest appropriate snapshot rather than summing historical snapshots.
-
-## Forecasting and risk methodology
-
-### Demand forecasting
-
-- Aggregates historical order intake by day and warehouse.
-- Compares a **recent same-weekday pattern** with a **rolling-average approach**.
-- Selects the lower-error method using a historical backtest for each warehouse.
-- Reports **mean absolute error (MAE)** and **weighted absolute percentage error (WAPE)**; a heuristic error envelope illustrates typical past miss sizes.
-- Translates the order forecast into **illustrative picking, packing, and dispatch labor-hour scenarios** using historical units per order and units per direct labor hour.
-
-**Limitation:** These are forecasts on synthetic history, not validated predictions of a real distribution center. Capacity scenarios do not account for every constraint, future staffing roster, or change in operating conditions.
-
-### Delay-risk intelligence
-
-- Uses past order characteristics and observed late-shipment outcomes to create an **explainable historical cohort-based score**.
-- Evaluates the score on held-out history, including a **Brier score** diagnostic.
-- Separates **already-overdue** orders from **upcoming** deadlines; an order that is already overdue is not treated as merely having a probability of lateness.
-- Shows possible contributing signals and suggested follow-up actions for human review.
-
-**Limitation:** Scores are **not calibrated probabilities**, identified signals are **not confirmed root causes**, and recommendations are **not automated warehouse decisions**.
-
-## Run locally
-
-**Recommended environment:** Python 3.12, with Git installed if you plan to clone the repository.
+Extract this folder and run:
 
 ```powershell
-git clone https://github.com/apiyufelix/warehouse-operations-control-tower-demo.git
-cd warehouse-operations-control-tower-demo
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Open `http://localhost:8501`. The public application expects `warehouse_ops_demo.db` alongside `app.py`. If PowerShell blocks virtual-environment activation under your organization's policy, use `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` and `.\.venv\Scripts\python.exe -m streamlit run app.py` instead of changing the security policy.
-
-### Tests
+Open http://localhost:8501. The default report covers the latest 30 calendar days in the frozen dataset; all timestamps are UTC. The expected latest snapshot is 2026-11-12. You may use the test script for a non-GUI smoke test:
 
 ```powershell
 python -m pip install pytest
 python -m pytest tests -q
 ```
 
-The repository's tests cover analytics components; the public demo package includes checks for its read-only database usage and absence of editing controls. A passing test suite does not substitute for deployment, security, or operational validation.
+> The Streamlit interface was not run in this project-building environment; visually confirm tabs, tables, charts, CSV downloads, and forecast behavior locally and on the hosted app.
 
-## Project files
+## Deploy publicly using GitHub + Streamlit Community Cloud
 
-| File | Responsibility |
-| --- | --- |
-| `app.py` | Streamlit page, filters, charts, and public-facing controls |
-| `analytics.py` | Read-only database loading, operational KPI calculations |
-| `executive.py` | Executive summaries, comparisons, and briefing export |
-| `productivity.py` | Process and labor productivity analytics |
-| `forecasting.py` | Forecasting, historical error tests, and capacity/alert scenarios |
-| `risk_intelligence.py` | Order-risk scoring, holdout evaluation, and prioritization |
-| `schema.sql` | Database schema reference, where included |
-| `requirements.txt` | Application dependencies |
-| `tests/` | Automated regression and reporting tests |
-| `warehouse_ops_demo.db` | Synthetic SQLite snapshot used by the public app |
+1. On GitHub, create a **new empty repository** (suggested: `warehouse-operations-control-tower-demo`) and copy its HTTPS repository URL. Do not initialize it with a README since one is already included.
+2. **Use Git in VS Code or the terminal**, not the GitHub browser file-upload page. The synthetic SQLite file is around **44 MB**, which exceeds GitHub's **25 MiB/browser-file upload limit** but is below its 100 MiB Git push limit. In a terminal opened **inside this extracted folder**, run:
 
-**Repository hygiene:** The current repository has also included development modules such as `data_ingestion.py` and `exception_workflow.py`, plus `warehouse_ops.db`. Those are **not required by the public read-only dashboard**. Before promoting the repository, audit both databases for confidentiality and remove unnecessary development assets from the public release; removing tracked files later does not erase them from Git history.
+   ```powershell
+   git init
+   git add .
+   git commit -m "Publish read-only warehouse operations demo"
+   git branch -M main
+   git remote add origin https://github.com/YOUR_USERNAME/warehouse-operations-control-tower-demo.git
+   git push -u origin main
+   ```
 
-## Privacy, security, and scope
+   Replace `YOUR_USERNAME` and the repository name with your actual GitHub details. If Git prompts you to sign in, use its browser-authentication flow; do not commit tokens or passwords. If your repo already has an initial commit, use the standard clone/commit/push workflow instead of blindly overwriting history. **Do not upload your Step 9 project**, user-edited database, secrets, or employer data.
+3. Open https://share.streamlit.io, sign in with GitHub, and choose **Create app**.
+4. Select your repository and branch, set the **main file path to `app.py`**, and optionally choose a custom subdomain. Use **Python 3.12** in Advanced settings if offered; no secrets are needed for this frozen public demo.
+5. Deploy and open the generated `*.streamlit.app` link. Check all tabs on desktop and mobile. Public visibility can be controlled from app settings. Add the deployed demo URL and GitHub repository to your portfolio and project resume, with the label **synthetic demo**.
 
-- The application is intended for a **public, synthetic-data demonstration** only.
-- The hosted read-only app uses a SQLite connection opened in **read-only/immutable mode**. It is not an enterprise permission system.
-- The public interface has **no data ingestion, case assignment, audit editing, or save actions**.
-- There are **no live WMS/ERP connectors**, and historical records do not update in real time.
-- The project does **not** establish production readiness, security certification, or realized operational improvements at an actual company.
-- Never publish employer data, personal data, passwords, access tokens, or non-synthetic operations records.
+See current official docs: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy
 
-## Next development opportunities
+## Data architecture / security notes
 
-A production-oriented version would require a managed PostgreSQL database, authenticated users and role-based authorization, securely governed imports or WMS integrations, durable audit history, monitoring, backup/restore procedures, model drift checks, and a deployment/security review. These capabilities are **future work**, not features of the public demo.
+- `warehouse_ops_demo.db` is a synthetic, frozen SQLite database; the app only queries it using `file:...?...mode=ro&immutable=1` and `PRAGMA query_only=ON`.
+- All user-facing controls are read-only filters or download actions. There are **no file uploaders and no save buttons** in the public app.
+- Source code and database in a **public GitHub repository are publicly downloadable**. This is safe only because these records are synthetic and have no personal or corporate confidential data.
+- Community Cloud is for demonstration. Resource limits, availability and persistent-write limitations mean it is not suitable as the present architecture for production warehouse operations.
+- There is no automatic live time refresh. A selected date in the historical dataset is **not today's operational state**. The standalone staffing scenario is labeled as frozen on November 12, 2026, and is not inferred from labor-shift hour totals.
+- The source data is simulated. Any forecast, heuristic alert, risk score, reference or recommendation is illustrative, not a guaranteed decision rule or validated enterprise forecast.
+- This project retains the PyArrow compatibility workaround: operational tables use escaped HTML instead of Streamlit dataframe widgets.
 
-## Author
+## Package files
 
-**Felix Apiyu**  
-[GitHub](https://github.com/apiyufelix) · [Live application](https://warehouse-operations-control-tower-demo-pebsnzfnmcbwlxfavivd2x.streamlit.app/)
+```
+app.py                      # 9-tab public UI: no persistent edits or uploads
+analytics.py                # UTC KPI engine + immutable SQLite reader
+productivity.py             # stage/shift productivity metrics
+labor_balancing.py          # explainable cross-trained staffing transfer recommendations
+data/labor_balance_scenarios.csv  # synthetic headcounts and remaining stage workload
+forecasting.py              # backtested demand scenario + rule-based alerts
+risk_intelligence.py        # retrospective risk triage and evaluation
+executive.py                # management summary and printable brief
+warehouse_ops_demo.db       # frozen synthetic data (no case or import audits)
+requirements.txt            # Python dependencies
+.streamlit/config.toml      # optional app configuration
+.gitignore                  # excludes local secrets and sidecar DB files
+tests/test_public_demo.py    # read-only checks
+tests/test_labor_balancing.py # labor transfer and minimum-staffing tests
+```
 
-*Built as a portfolio demonstration combining warehouse operations, data analytics, Python application development, and explainable decision-support methods.*
+## Cross-trained labor balancing — management alert prototype
+
+The **⚖️ Labor balancing** tab shows a management-level summary across the selected warehouses and shifts, and allows an interactive what-if simulation for one warehouse/shift. It assumes that staff are cross-trained across Picking, Packing, and Dispatch. **Transfers are recommendations only**, and may never cross warehouses or shifts.
+
+### What it calculates
+
+- **Current employees** is an explicit input headcount, **not** an estimate inferred from historical `labor_shifts` hours.
+- **Remaining stage workload** is a synthetic or manually entered queue/work volume for each department.
+- **Reference processing rate** starts from illustrative units per worker-hour, independently adjustable for each department.
+- **Minimum staffing** is a separately adjustable safety/coverage floor per department.
+- **Hours remaining**, **productive time fraction**, and **contingency buffer** are scenario assumptions, not validated labor policies.
+
+For a stage, the formula is:
+
+```
+needed_staff = max(
+    minimum_staff,
+    ceil(remaining_stage_units * (1 + workload_buffer)
+         / (units_per_worker_hour * hours_remaining * productive_fraction))
+)
+surplus = max(current_staff - needed_staff, 0)
+shortage = max(needed_staff - current_staff, 0)
+```
+
+The recommender transfers the **maximum safe whole-person count** from a surplus department to a shortage department **within the same warehouse and shift**, prioritizing the largest shortages first. Donors cannot fall below their calculated requirement or their minimum coverage. If no donor can fill a shortage, the alert remains open. If staff are excess but no other department is short, the system **does not recommend unnecessary moves**.
+
+### Illustrated output from the default scenario
+
+With 6 hours remaining, 85% productive time, and a 10% workload contingency, the six synthetic warehouse/shift scenarios recommend **14 total transfers** across **five warehouse/shift groups**. For example:
+
+- **Central NC, Shift A:** move **3** employees from **Picking → Packing**, with **1** modeled Packing employee shortage still unmet.
+- **Central NC, Shift B:** move **3** employees from **Packing → Dispatch**.
+- **Piedmont, Shift B:** move **3** employees from **Packing → Picking**.
+
+These numbers are *not* current real-world overstaffing; they are deliberately designed demonstration inputs. The app compares the indicative stage-level work gap before and after reallocation, but **does not claim measured shipment increases or verified cost savings**. Picking, Packing, and Dispatch count the same underlying units at different stages; do not add their covered-unit figures as unique shipped units.
+
+### What production integration would need
+
+A live WMS/labor planning integration must supply verified on-duty staffing/headcount, work queues by stage, reliable measured process rates, employee availability and break constraints, minimum safe staffing, scan-to-work assignment, and department transfer approvals. The public demo sends **no push notifications or emails** and stores **no what-if modifications**.
+
+## Future private product
+
+Keep the local/private Step 9 app separate. A multi-user version needs authentication, authorization, a managed database with backups and migrations, audit controls, import governance, and tests before handling operational data. None of those enterprise controls are claimed for this public demo.
+
+
+## Step 16 — Before and after labor reallocation
+
+The Labor balancing tab includes a scenario comparison at both the all-shifts and chosen-shift levels. It charts departmental staffing before and after suggested transfers, shows required coverage and modeled stage-work coverage, and exports a before/after analysis. This is a planning simulation (not realized productivity gains). See `UPGRADE_NOTES.md` for deployment instructions.
