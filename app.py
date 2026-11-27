@@ -275,9 +275,9 @@ with tab_exec:
                   help="Stage-specific throughput; picking stage is not an additional shipment count.")
         n1, n2, n3, n4 = st.columns(4)
         n1.metric("Orders received", f"{ec['orders_received']:,}",
-                  delta=exec_change("Orders received", "", 0), delta_color="off")
+                  delta=exec_change("Orders received", "", 0), delta_color="normal")
         n2.metric("Orders shipped", f"{ec['orders_shipped']:,}",
-                  delta=exec_change("Orders shipped", "", 0), delta_color="off")
+                  delta=exec_change("Orders shipped", "", 0), delta_color="normal")
         n3.metric("Open backlog", f"{ec['open_backlog_asof']:,}",
                   delta=exec_change("Open backlog (as-of)", "", 0), delta_color="inverse")
         n4.metric("Next 7-day order forecast", pretty_number(e['forecast7']),
@@ -668,7 +668,7 @@ with tab_labor:
         global_operational_impact = prepare_operational_impact(
             base, transfer_setup_minutes=transfer_setup_minutes,
         )['metrics']
-        st.markdown('#### Step 17 — Impact with transfer handoff time (all modeled shifts)')
+        st.subheader('Impact with transfer handoff time (all modeled shifts)')
         g1, g2, g3, g4 = st.columns(4)
         g1.metric('Additional stage work coverable',
                   f"{global_operational_impact['additional_stage_work_covered']:,.1f}",
@@ -805,7 +805,7 @@ with tab_labor:
                    'in the demo; total staff is conserved within the selected shift. Zero-work departments ' 
                    'show N/A coverage. Managers must verify actual work queues and constraints.')
 
-        st.markdown('#### Projected operational impact (selected shift)')
+        st.subheader("Projected operational impact (selected shift)")
         operational_impact = prepare_operational_impact(
             modeled, transfer_setup_minutes=transfer_setup_minutes,
         )
@@ -1189,7 +1189,14 @@ with tab_risk:
             fig = px.bar(plot_frame, x='score_band', y='Percentage', color='Measure', barmode='group',
                          labels={'score_band': 'Score category', 'Percentage': 'Percent'},
                          title='Holdout: predicted score versus observed late rate')
-            st.plotly_chart(chart_style(fig), use_container_width=True)
+            fig = chart_style(fig)
+
+            fig.update_layout(
+                margin=dict(l=0, r=12, t=70, b=0),
+                height=380
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
             with st.expander('Evaluation counts by score category'):
                 render_html_table(calibration.round(2).rename(columns={
                     'score_band': 'Category', 'orders': 'Evaluated orders',
