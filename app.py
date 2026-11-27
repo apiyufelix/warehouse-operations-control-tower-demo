@@ -19,6 +19,7 @@ import streamlit as st
 from analytics import load_tables, prepare_dashboard
 from productivity import PROCESSES, SHIFTS, prepare_productivity
 from labor_balancing import analyze_labor_balance, prepare_labor_comparison
+from operational_impact import prepare_operational_impact
 from forecasting import prepare_forecast, prepare_capacity_scenario, prepare_alerts
 from risk_intelligence import prepare_risk_intelligence
 from executive import DEMO_REFERENCES, export_brief_html, prepare_executive
@@ -602,6 +603,12 @@ with tab_labor:
         with tune3:
             buffer_pct = st.slider('Workload contingency (%)', 0, 30, 10, 5,
                                    help='Reserve extra capacity for interruptions and rework.')
+        transfer_setup_minutes = st.slider(
+            'Estimated handoff/setup time per transferred employee (minutes)',
+            min_value=0, max_value=120, value=15, step=5,
+            help='Illustrative delay before transferred workers become productive in the destination department. '
+                 'Only affects Step 17 capacity estimates, not transfer eligibility.'
+        )
         base = analyze_labor_balance(labor_scenarios, hours_remaining=hours_left,
                                      target_utilization=target_pct / 100,
                                      workload_buffer=buffer_pct / 100)
@@ -655,6 +662,28 @@ with tab_labor:
         st.caption('Totals are across **six independently modeled warehouse/shift scenarios** and count work at ' 
                    'each process stage, not distinct shipped units. Coverage is a planning estimate, not ' 
                    'measured productivity or a forecast of on-time delivery.')
+
+        # Step 17 includes modeled handoff time; Step 16 deliberately preserves
+        # the frictionless comparison for reference.
+        global_operational_impact = prepare_operational_impact(
+            base, transfer_setup_minutes=transfer_setup_minutes,
+        )['metrics']
+        st.markdown('#### Step 17 — Impact with transfer handoff time (all modeled shifts)')
+        g1, g2, g3, g4 = st.columns(4)
+        g1.metric('Additional stage work coverable',
+                  f"{global_operational_impact['additional_stage_work_covered']:,.1f}",
+                  help='Extra stage-work units the modeled staffing plan can cover before shift end, '
+                       'after simulated handoff delay. Not additional orders shipped.')
+        g2.metric('Workload stages at capacity risk',
+                  f"{global_operational_impact['at_risk_stages_before']} → "
+                  f"{global_operational_impact['at_risk_stages_after']}")
+        g3.metric('Uncovered stage-work before',
+                  f"{global_operational_impact['uncovered_stage_work_before']:,.1f}")
+        g4.metric('Uncovered stage-work after',
+                  f"{global_operational_impact['uncovered_stage_work_after']:,.1f}")
+        st.caption('These results include simulated setup time and may therefore be lower than the '
+                   'frictionless Step 16 figures above. At-risk stages are work queues with insufficient '
+                   'modeled capacity by shift end—not predicted late orders or customer SLA breaches.')
 
         st.markdown('#### Test a shift-level reallocation')
         warehouse_options = list(labor_scenarios['warehouse_name'].drop_duplicates())
@@ -775,6 +804,101 @@ with tab_labor:
                    'hours left, not observed output gains, cost savings, or unique orders. No employees move ' 
                    'in the demo; total staff is conserved within the selected shift. Zero-work departments ' 
                    'show N/A coverage. Managers must verify actual work queues and constraints.')
+
+        st.markdown('#### Step 17 — Projected operational impact (selected shift)')
+        operational_impact = prepare_operational_impact(
+            modeled, transfer_setup_minutes=transfer_setup_minutes,
+        )
+        op_stages = operational_impact['stages']
+        op = operational_impact['metrics']
+        q1, q2, q3, q4 = st.columns(4)
+        q1.metric('Additional stage work coverable', f"{op['additional_stage_work_covered']:,.1f}",
+                  help='Extra stage-work units covered within this shift if recommendations are followed '
+                       'and the setup delay and reference rates hold.')
+        q2.metric('Stage queues at risk',
+                  f"{op['at_risk_stages_before']} → {op['at_risk_stages_after']}",
+                  help='Number of department queues with work projected to remain at shift end.')
+        q3.metric('Shift-end work remaining (before)',
+                  f"{op['uncovered_stage_work_before']:,.1f}")
+        q4.metric('Shift-end work remaining (after)',
+                  f"{op['uncovered_stage_work_after']:,.1f}")
+
+        load_left, clear_right = st.columns(2)
+        with load_left:
+            st.markdown('**Planned workload as % of stage capacity**')
+            load_fig = go.Figure()
+            for period in ('before', 'after'):
+                load_fig.add_trace(go.Bar(
+                    x=op_stages['process_name'],
+                    y=op_stages[f'capacity_load_pct_{period}'],
+                    name=period.title(),
+                ))
+            load_fig.add_hline(y=100, line_dash='dot', line_color='gray')
+            load_fig.update_layout(barmode='group', xaxis_title='Department',
+                                   yaxis_title='Workload / stage capacity (%)')
+            st.plotly_chart(chart_style(load_fig), use_container_width=True)
+        with clear_right:
+            st.markdown('**Estimated hours to clear remaining stage work**')
+            clear_fig = go.Figure()
+            for period in ('before', 'after'):
+                clear_fig.add_trace(go.Bar(
+                    x=op_stages['process_name'],
+                    y=op_stages[f'estimated_clear_hours_{period}'],
+                    name=period.title(),
+                ))
+            clear_fig.add_hline(y=hours_left, line_dash='dot', line_color='gray')
+            clear_fig.update_layout(barmode='group', xaxis_title='Department',
+                                    yaxis_title='Elapsed hours to clear stage queue')
+            st.plotly_chart(chart_style(clear_fig), use_container_width=True)
+        st.caption('The dotted load line is 100% capacity; the dotted clearance line is time left '
+                   'in the shift. A workload/capacity ratio above 100% signals a modeled overload. '
+                   'If a stage has zero staff and work remains, its clearance time is unavailable.')
+
+        op_table = op_stages[[
+            'process_name', 'staff_before', 'staff_after', 'remaining_stage_units',
+            'capacity_before', 'capacity_after', 'stage_work_covered_before',
+            'stage_work_covered_after', 'additional_stage_work_covered',
+            'capacity_load_pct_before', 'capacity_load_pct_after',
+            'estimated_clear_hours_before', 'estimated_clear_hours_after',
+        ]].rename(columns={
+            'process_name': 'Department', 'staff_before': 'Staff before',
+            'staff_after': 'Staff after', 'remaining_stage_units': 'Stage work queued',
+            'capacity_before': 'Stage capacity before',
+            'capacity_after': 'Stage capacity after (setup adjusted)',
+            'stage_work_covered_before': 'Work coverable before',
+            'stage_work_covered_after': 'Work coverable after',
+            'additional_stage_work_covered': 'Net change in coverable work',
+            'capacity_load_pct_before': 'Capacity load before (%)',
+            'capacity_load_pct_after': 'Capacity load after (%)',
+            'estimated_clear_hours_before': 'Queue clearance before (h)',
+            'estimated_clear_hours_after': 'Queue clearance after (h)',
+        }).round(1)
+        render_html_table(op_table)
+        download_csv('Download operational impact estimates', op_table,
+                     'labor_reallocation_operational_impact')
+
+        if not operational_impact['transfers_ranked'].empty:
+            st.markdown('**Which recommended transfers offer the most stage-work coverage per employee?**')
+            ranked_moves = operational_impact['transfers_ranked'][[
+                'priority_rank', 'from_department', 'to_department',
+                'employees_to_transfer', 'marginal_stage_work_gain',
+                'gain_per_transferred_employee',
+            ]].rename(columns={
+                'priority_rank': 'Impact rank (among suggested moves)',
+                'from_department': 'From', 'to_department': 'To',
+                'employees_to_transfer': 'Move employees',
+                'marginal_stage_work_gain': 'Additional stage work coverable',
+                'gain_per_transferred_employee': 'Stage work gained / moved employee',
+            }).round(1)
+            render_html_table(ranked_moves)
+            download_csv('Download ranked transfer impact', ranked_moves,
+                         'labor_reallocation_ranked_moves')
+        else:
+            st.info('No suggested transfers to rank for this warehouse and shift.')
+        st.info('**Interpretation:** These are simulated, stage-specific capacity estimates—not '
+                'measured labor productivity, extra shipments, guaranteed delay reductions, or cost savings. '
+                'Handoff time is a scenario assumption. Ranked moves are from the existing safe transfer '
+                'plan; the ranking does not optimize or authorize personnel movements.')
 
         if not modeled['transfers'].empty:
             for move in modeled['transfers'].itertuples(index=False):
