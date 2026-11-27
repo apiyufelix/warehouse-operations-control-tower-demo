@@ -805,7 +805,7 @@ with tab_labor:
                    'in the demo; total staff is conserved within the selected shift. Zero-work departments ' 
                    'show N/A coverage. Managers must verify actual work queues and constraints.')
 
-        st.markdown('#### Step 17 — Projected operational impact (selected shift)')
+        st.markdown('#### Projected operational impact (selected shift)')
         operational_impact = prepare_operational_impact(
             modeled, transfer_setup_minutes=transfer_setup_minutes,
         )
