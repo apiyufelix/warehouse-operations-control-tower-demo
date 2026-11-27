@@ -1,4 +1,4 @@
-# Warehouse Operations Control Tower — Public Demo + Labor Balancing (Step 15)
+# Warehouse Operations Control Tower — Public Demo + Labor Balancing Impact (Step 17)
 
 A **9-tab Streamlit demonstration** of warehouse and distribution-center operations performance. The package contains **only synthetic warehouse records** in a frozen SQLite database, with historical data through **November 12, 2026 (UTC)**. This is not a live WMS feed or a production service.
 
@@ -66,6 +66,7 @@ app.py                      # 9-tab public UI: no persistent edits or uploads
 analytics.py                # UTC KPI engine + immutable SQLite reader
 productivity.py             # stage/shift productivity metrics
 labor_balancing.py          # explainable cross-trained staffing transfer recommendations
+operational_impact.py       # handoff-aware stage-capacity and queue-clearance model
 data/labor_balance_scenarios.csv  # synthetic headcounts and remaining stage workload
 forecasting.py              # backtested demand scenario + rule-based alerts
 risk_intelligence.py        # retrospective risk triage and evaluation
@@ -126,3 +127,28 @@ Keep the local/private Step 9 app separate. A multi-user version needs authentic
 ## Step 16 — Before and after labor reallocation
 
 The Labor balancing tab includes a scenario comparison at both the all-shifts and chosen-shift levels. It charts departmental staffing before and after suggested transfers, shows required coverage and modeled stage-work coverage, and exports a before/after analysis. This is a planning simulation (not realized productivity gains). See `UPGRADE_NOTES.md` for deployment instructions.
+
+## Step 17 — Labor reallocation operational impact (synthetic what-if)
+
+The **⚖️ Labor balancing** tab now also shows **Step 17: projected operational impact** with a user-adjustable **handoff/setup delay** (default 15 minutes) before a transferred employee becomes productive in their destination department. The earlier Step 16 no-delay comparison remains visible as a reference; Step 17 explicitly accounts for the transfer delay and may show smaller gains.
+
+### What is modeled
+
+- **Stage processing capacity before/after** in stage-work units that could be handled with the assumed staffing, reference process rates, productive time fraction, buffer, and hours remaining.
+- **Additional stage work coverable within the shift**, capped by remaining workload at each stage; these values **are not actual extra shipped orders or units**, since the same physical unit can be present at Picking, Packing, and Dispatch.
+- **Stage capacity load (%):** remaining stage work / modeled processing capacity, so a reading above 100% means the department's workload exceeds its modeled remaining-shift capacity. This is **not measured employee utilization**.
+- **Estimated time to clear each stage queue:** a simplified duration using fixed processing rates and a single handoff delay for incoming workers. The model does not estimate customer shipping SLA outcomes.
+- **Queue risk before/after:** number of process-stage queues with work still uncovered by the end of the modeled shift, not number of late customer orders.
+- **Impact-ranked transfer recommendations:** existing safe, same-warehouse/same-shift moves ranked by incremental stage work coverable **per transferred employee**. Ranking compares *suggested* moves; it does not recompute an optimal staffing allocation.
+
+### Model mechanics
+
+For each stage, capacity **before** transfers is `current_staff * hours_remaining * rate * productive_fraction / (1+buffer)`. Capacity **after** transfers is `((staff_after - incoming_workers) * hours_remaining + incoming_workers * max(0, hours_remaining - setup_minutes/60)) * rate * productive_fraction / (1+buffer)`.
+
+For time-to-clear, existing workers are assumed available immediately and transferred workers start after the setup time. Covered work is the minimum of the stage's remaining workload and estimated processing capacity. Each stage is modeled independently; intermediate buffer constraints, transportation/handling delays, work-release sequencing, fatigue, machine outages, quality issues, and actual labor availability are not modeled.
+
+### Default demonstration outcomes
+
+At 6 hours remaining, 85% productive time, 10% buffer, and 15 minutes transfer setup, the six **synthetic** shift scenarios contain 14 recommended employee movements and **approximately 453.6 additional stage-work units coverable** under the model. The count of process-stage queues with uncovered work drops from **5 to 1**. These are illustrative what-if comparisons, **not observed production improvements**.
+
+All changes are in browser session only; no personnel are moved and the public app does not store edits. See `UPGRADE_NOTES.md` for deployment and verification.
